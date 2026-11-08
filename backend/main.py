@@ -92,6 +92,21 @@ def current_user(token: str = Depends(oauth), db: Session = Depends(db_session))
 def checkin_view(item: Checkin):
     return {"id": item.id, "date": item.day.isoformat(), "sleep": item.sleep, "activity": item.activity, "stress": item.stress, "meals": item.meals}
 
+def trend_projection(items: list[Checkin], field: str, floor: float, ceiling: float):
+    first_day = items[0].day
+    xs = [(item.day - first_day).days for item in items]
+    ys = [float(getattr(item, field)) for item in items]
+    x_mean = sum(xs) / len(xs)
+    y_mean = sum(ys) / len(ys)
+    variance = sum((x - x_mean) ** 2 for x in xs)
+    slope = sum((x - x_mean) * (y - y_mean) for x, y in zip(xs, ys)) / variance if variance else 0.0
+    current = ys[-1]
+    projected = max(floor, min(ceiling, current + slope * 30))
+    change = projected - current
+    tolerance = 0.35 if field in {"sleep", "stress", "meals"} else 1.0
+    direction = "rising" if change > tolerance else "falling" if change < -tolerance else "steady"
+    return {"current": round(current, 1), "projected": round(projected, 1), "change": round(change, 1), "direction": direction}
+
 @app.get("/api/health")
 def health(): return {"status": "ok"}
 
@@ -124,6 +139,27 @@ def list_checkins(limit: int = 90, user: User = Depends(current_user), db: Sessi
     limit = max(1, min(limit, 365))
     items = db.scalars(select(Checkin).where(Checkin.user_id == user.id).order_by(Checkin.day.desc()).limit(limit)).all()
     return [checkin_view(item) for item in reversed(items)]
+
+@app.get("/api/outlook")
+def lifestyle_outlook(user: User = Depends(current_user), db: Session = Depends(db_session)):
+    items = db.scalars(select(Checkin).where(Checkin.user_id == user.id).order_by(Checkin.day.desc()).limit(30)).all()
+    items = list(reversed(items))
+    span = (items[-1].day - items[0].day).days if len(items) > 1 else 0
+    if len(items) < 7 or span < 6:
+        return {"ready": False, "entries_used": len(items), "entries_needed": max(0, 7 - len(items)), "message": "Add at least 7 daily check-ins across a week to see an early personal trend projection."}
+    fields = [
+        ("sleep", "Sleep", "hours", 0, 14, {"rising": "Your reported sleep hours trend upward in this projection.", "falling": "Your reported sleep hours trend downward in this projection.", "steady": "Your reported sleep hours look steady in this projection."}),
+        ("activity", "Active days", "days per week", 0, 7, {"rising": "Your reported active days trend upward in this projection.", "falling": "Your reported active days trend downward in this projection.", "steady": "Your reported active days look steady in this projection."}),
+        ("stress", "Stress", "out of 5", 1, 5, {"rising": "Your reported stress scores trend upward in this projection.", "falling": "Your reported stress scores trend downward in this projection.", "steady": "Your reported stress scores look steady in this projection."}),
+        ("meals", "Meal balance", "out of 5", 1, 5, {"rising": "Your reported meal-balance scores trend upward in this projection.", "falling": "Your reported meal-balance scores trend downward in this projection.", "steady": "Your reported meal-balance scores look steady in this projection."}),
+    ]
+    projections = []
+    for field, title, unit, floor, ceiling, explanations in fields:
+        result = trend_projection(items, field, floor, ceiling)
+        improving_direction = "falling" if field == "stress" else "rising"
+        signal = "improving" if result["direction"] == improving_direction else "watch" if result["direction"] != "steady" else "steady"
+        projections.append({"key": field, "title": title, "unit": unit, **result, "signal": signal, "interpretation": explanations[result["direction"]]})
+    return {"ready": True, "forecast_days": 30, "entries_used": len(items), "projections": projections, "method": "A straight-line extrapolation of your recent self-reported check-ins.", "disclaimer": "This is an illustrative habit-trend projection, not a validated health-risk or disease prediction."}
 
 @app.post("/api/checkins")
 def save_checkin(data: CheckinInput, user: User = Depends(current_user), db: Session = Depends(db_session)):

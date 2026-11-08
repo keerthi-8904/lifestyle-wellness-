@@ -30,7 +30,8 @@ You need Node.js LTS and Python 3.11 or newer.
 
 - Account registration and sign-in; passwords are stored as hashes.
 - Personal daily check-ins for sleep, active days, stress, and meal balance.
-- A user can update that day's entry; the app keeps a personal history.
+- A user can update that day's entry or backfill an earlier date; the app keeps a personal history.
+- After at least 7 check-ins across 6 or more days, the API extrapolates the latest 30 check-ins into a 30-day lifestyle trend projection. It recalculates when the user saves a check-in; no daily model training is used.
 - SQLite database locally. PostgreSQL is an optional deployment dependency listed in `backend/requirements-postgres.txt`.
 - FastAPI docs at http://127.0.0.1:8000/docs.
 
@@ -42,4 +43,4 @@ The included Render plan is for a free demonstration. Render's free web service 
 
 ## Important limits
 
-The dashboard describes self-reported habit patterns. Its illustrative thresholds are not a validated future disease risk prediction, medical advice, or diagnosis. This demo has not been security-reviewed for public use. Before deployment with real users, set a strong private `JWT_SECRET`, use managed PostgreSQL, HTTPS, secure account recovery, rate limiting, backups, privacy/deletion notices, and review the applicable health-data rules. The current database is local to the API server and is not shared between separate installations.
+The projection uses a simple linear trend extrapolation on self-reported habit entries. It is not a trained AI model, a validated future disease risk prediction, medical advice, or diagnosis. This demo has not been security-reviewed for public use. Before deployment with real users, set a strong private `JWT_SECRET`, use managed PostgreSQL, HTTPS, secure account recovery, rate limiting, backups, privacy/deletion notices, and review the applicable health-data rules. The current database is local to the API server and is not shared between separate installations.
