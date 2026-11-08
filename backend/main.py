@@ -100,7 +100,8 @@ def trend_projection(items: list[Checkin], field: str, floor: float, ceiling: fl
     y_mean = sum(ys) / len(ys)
     variance = sum((x - x_mean) ** 2 for x in xs)
     slope = sum((x - x_mean) * (y - y_mean) for x, y in zip(xs, ys)) / variance if variance else 0.0
-    current = ys[-1]
+    recent = ys[-7:]
+    current = sum(recent) / len(recent)
     projected = max(floor, min(ceiling, current + slope * 30))
     change = projected - current
     tolerance = 0.35 if field in {"sleep", "stress", "meals"} else 1.0
@@ -147,19 +148,43 @@ def lifestyle_outlook(user: User = Depends(current_user), db: Session = Depends(
     span = (items[-1].day - items[0].day).days if len(items) > 1 else 0
     if len(items) < 7 or span < 6:
         return {"ready": False, "entries_used": len(items), "entries_needed": max(0, 7 - len(items)), "message": "Add at least 7 daily check-ins across a week to see an early personal trend projection."}
+    # These are transparent, app-defined habit markers. They are not validated
+    # medical cutoffs and must never be presented as disease-risk thresholds.
     fields = [
-        ("sleep", "Sleep", "hours", 0, 14, {"rising": "Your reported sleep hours trend upward in this projection.", "falling": "Your reported sleep hours trend downward in this projection.", "steady": "Your reported sleep hours look steady in this projection."}),
-        ("activity", "Active days", "days per week", 0, 7, {"rising": "Your reported active days trend upward in this projection.", "falling": "Your reported active days trend downward in this projection.", "steady": "Your reported active days look steady in this projection."}),
-        ("stress", "Stress", "out of 5", 1, 5, {"rising": "Your reported stress scores trend upward in this projection.", "falling": "Your reported stress scores trend downward in this projection.", "steady": "Your reported stress scores look steady in this projection."}),
-        ("meals", "Meal balance", "out of 5", 1, 5, {"rising": "Your reported meal-balance scores trend upward in this projection.", "falling": "Your reported meal-balance scores trend downward in this projection.", "steady": "Your reported meal-balance scores look steady in this projection."}),
+        ("sleep", "Sleep", "hours", 0, 14, 7, "higher", "Short sleep pattern", "Your projected sleep average may stay below the app's 7-hour reference."),
+        ("activity", "Active days", "days per week", 0, 7, 4, "higher", "Low movement pattern", "Your logged active days may stay below the app's 4-day marker."),
+        ("stress", "Stress", "out of 5", 1, 5, 3, "lower", "Higher stress pattern", "Your self-rated stress may remain at or above 3 out of 5."),
+        ("meals", "Meal balance", "out of 5", 1, 5, 3, "higher", "Meal-balance pattern", "Your meal-balance rating may remain below 3 out of 5."),
     ]
     projections = []
-    for field, title, unit, floor, ceiling, explanations in fields:
+    for field, title, unit, floor, ceiling, marker, favorable, risk_title, risk_message in fields:
         result = trend_projection(items, field, floor, ceiling)
-        improving_direction = "falling" if field == "stress" else "rising"
-        signal = "improving" if result["direction"] == improving_direction else "watch" if result["direction"] != "steady" else "steady"
-        projections.append({"key": field, "title": title, "unit": unit, **result, "signal": signal, "interpretation": explanations[result["direction"]]})
-    return {"ready": True, "forecast_days": 30, "entries_used": len(items), "projections": projections, "method": "A straight-line extrapolation of your recent self-reported check-ins.", "disclaimer": "This is an illustrative habit-trend projection, not a validated health-risk or disease prediction."}
+        favorable_direction = "falling" if favorable == "lower" else "rising"
+        projected_needs_attention = result["projected"] >= marker if favorable == "lower" else result["projected"] < marker
+        if projected_needs_attention:
+            signal = "improving" if result["direction"] == favorable_direction else "watch"
+            interpretation = risk_message
+        elif result["direction"] == favorable_direction:
+            signal = "improving"
+            interpretation = "This habit is moving toward the app's reference in the projection."
+        elif result["direction"] != "steady":
+            signal = "watch"
+            interpretation = "This habit is trending toward the app's attention marker in the projection."
+        else:
+            signal = "steady"
+            interpretation = "This habit stays near or within the app's reference in the projection."
+        projections.append({
+            "key": field, "title": title, "risk_title": risk_title, "unit": unit,
+            "attention_marker": marker, **result, "signal": signal,
+            "interpretation": interpretation,
+        })
+    return {
+        "ready": True,
+        "entries_used": len(items),
+        "projections": projections,
+        "method": "A transparent straight-line trend fitted to up to 30 of your recent self-reported entries. The markers are app-defined habit references, not clinical cutoffs.",
+        "disclaimer": "These signals describe possible future habit patterns only. They are not disease probabilities, a diagnosis, or medical advice.",
+    }
 
 @app.post("/api/checkins")
 def save_checkin(data: CheckinInput, user: User = Depends(current_user), db: Session = Depends(db_session)):
