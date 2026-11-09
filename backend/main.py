@@ -1,4 +1,6 @@
 import os
+import json
+import math
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
@@ -71,6 +73,16 @@ class CheckinInput(BaseModel):
     activity: int = Field(ge=0, le=7)
     stress: int = Field(ge=1, le=5)
     meals: int = Field(ge=1, le=5)
+
+class DiabetesResearchInput(BaseModel):
+    age: int = Field(ge=18, le=79)
+    male: bool
+    bmi: float = Field(ge=13.7, le=49.9)
+    waist_cm: float = Field(ge=36.9, le=130)
+    exercise_habit: bool
+    hba1c_percent: float = Field(ge=3.7, le=6.4)
+    fasting_glucose_mg_dl: float = Field(ge=51, le=109)
+    fatty_liver: bool
 
 def db_session():
     db = SessionLocal()
@@ -184,6 +196,29 @@ def lifestyle_outlook(user: User = Depends(current_user), db: Session = Depends(
         "projections": projections,
         "method": "A transparent straight-line trend fitted to up to 30 of your recent self-reported entries. The markers are app-defined habit references, not clinical cutoffs.",
         "disclaimer": "These signals describe possible future habit patterns only. They are not disease probabilities, a diagnosis, or medical advice.",
+    }
+
+@app.post("/api/research/diabetes-5-year")
+def diabetes_research_estimate(data: DiabetesResearchInput, user: User = Depends(current_user)):
+    """Research-only cohort estimate; request values are not written to the database."""
+    model_path = BASE / "diabetes_research_model.json"
+    if not model_path.is_file():
+        raise HTTPException(status_code=503, detail="The research model is not installed.")
+    with model_path.open("r", encoding="utf-8") as model_file:
+        model = json.load(model_file)
+    values = [data.age, int(data.male), data.bmi, data.waist_cm, int(data.exercise_habit), data.hba1c_percent, data.fasting_glucose_mg_dl, int(data.fatty_liver)]
+    linear_predictor = sum(((value - model["means"][i]) / model["scales"][i]) * model["coefficients"][i] for i, value in enumerate(values))
+    relative_hazard = math.exp(max(-30.0, min(30.0, linear_predictor)))
+    hazard = model["baseline_cumulative_hazard_5y"] * relative_hazard
+    probability = 1.0 - math.exp(-hazard)
+    return {
+        "estimate_percent": round(probability * 100, 1),
+        "horizon_years": 5,
+        "model_type": model["model_type"],
+        "validation": model["validation"],
+        "cohort_summary": model["cohort_summary"],
+        "notice": model["limitations"],
+        "saved": False,
     }
 
 @app.post("/api/checkins")

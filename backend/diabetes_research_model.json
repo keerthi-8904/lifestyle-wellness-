@@ -1,0 +1,61 @@
+{
+  "model_type": "Cox proportional hazards",
+  "model_version": "research-cox-v1",
+  "cohort": "NAGALA Japanese health-check cohort (Dryad DOI 10.5061/dryad.8q0p192)",
+  "horizon_days": 1826.25,
+  "features": [
+    "age",
+    "male",
+    "bmi",
+    "waist_cm",
+    "exercise_habit",
+    "hba1c_percent",
+    "fasting_glucose_mg_dl",
+    "fatty_liver"
+  ],
+  "means": [
+    43.70841955509542,
+    0.5451370926020791,
+    22.117034568409878,
+    76.47068675634043,
+    0.1751810657009899,
+    5.171706802897073,
+    92.96857216761462,
+    0.1772503879979378
+  ],
+  "scales": [
+    8.897081630945692,
+    0.49795847504728696,
+    3.1266404624918,
+    9.105782608925656,
+    0.3801219013958838,
+    0.3218467134336191,
+    7.436829699884934,
+    0.38188046291019717
+  ],
+  "coefficients": [
+    0.202774631548089,
+    -0.0066004242301656475,
+    0.0869828500517515,
+    0.27035671148472645,
+    -0.03481121574181497,
+    0.8799584405483116,
+    0.7293146077843267,
+    0.2810750207128817
+  ],
+  "baseline_cumulative_hazard_5y": 0.003830493107058951,
+  "validation": {
+    "method": "stratified random 80/20 holdout; fixed seed 20261109; Harrell concordance index",
+    "c_index": 0.8718717811379836,
+    "n_train": 12371,
+    "events_train": 298,
+    "n_test": 3093,
+    "events_test": 75
+  },
+  "cohort_summary": {
+    "n": 15464,
+    "events": 373,
+    "followup_median_days": 1967
+  },
+  "limitations": "Internal research prototype only. Japanese cohort; no external or local-population validation; historical follow-up varies. Not for diagnosis, care decisions, or clinical use. A 5-year cohort estimate does not use users’ daily habit journal and may not generalize to Bloom users."
+}
