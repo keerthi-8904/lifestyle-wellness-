@@ -1,6 +1,6 @@
-# Bloom — Daily Wellness Check-ins
+# Bloom — AI Lifestyle Risk Research & Daily Wellness
 
-Bloom is a project demo where multiple users can create accounts, log daily lifestyle habits, and see simple summaries based on their own recent entries.
+Bloom combines daily behavioral analytics with a trained Cox time-to-event model for an educational five-year Type 2 diabetes research estimate. The daily check-in model projects habit patterns only; the separate cohort model uses clinical baseline measurements. The project does not provide clinical diagnoses or validated personal disease predictions.
 
 ## Run on Windows
 
