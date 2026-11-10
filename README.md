@@ -30,6 +30,8 @@ You need Node.js LTS and Python 3.11 or newer.
 
 - Account registration and sign-in; passwords are stored as hashes.
 - Personal daily check-ins for sleep, active days, stress, and meal balance.
+- A guided, sequential wellness journey with flexible ideas for students, employees, teachers, shift workers, travelers, caregivers, and people seeking optional support around tobacco, alcohol, or recovery. Routine choices stay in browser storage on that device; they are not disease-risk inputs.
+- A symptom and health-topic search that opens MedlinePlus, a U.S. National Library of Medicine resource with reviewed health information. Search terms are sent to MedlinePlus by the user's browser and are not sent to Bloom's API. This is information lookup, not an AI diagnosis.
 - A user can update that day's entry or backfill an earlier date; the app keeps a personal history.
 - After at least 7 check-ins across 6 or more days, the API fits a transparent straight-line trend to up to 30 recent entries and estimates how four reported habit patterns could look in 30 days. The dashboard marks possible short sleep, lower active-day counts, higher self-rated stress, and low meal-balance ratings as **Watch**, **Improving**, or **Steady**. It recalculates after a check-in; there is no daily model training.
 - Optional adult Type 2 diabetes screening using the Indian Diabetes Risk Score (IDRS). Age, waist category, physical activity category, and parental history are calculated in the browser only and are not sent to the API or stored. See the [IDRS validation study](https://pmc.ncbi.nlm.nih.gov/articles/PMC8117908/).
