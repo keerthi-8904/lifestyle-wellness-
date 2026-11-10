@@ -189,6 +189,12 @@ def wellness_chat(data: ChatInput, user: User = Depends(current_user)):
     except HTTPError as exc:
         if exc.code == 429:
             raise HTTPException(status_code=503, detail="The AI service is busy or its API quota is unavailable. Please try later.") from exc
+        if exc.code == 401:
+            raise HTTPException(status_code=503, detail="The AI provider rejected the API key. Check the OPENAI_API_KEY value in Render, then redeploy.") from exc
+        if exc.code == 403:
+            raise HTTPException(status_code=503, detail="The AI provider denied access. Check the API key's project permissions and API account access.") from exc
+        if exc.code in (400, 404):
+            raise HTTPException(status_code=503, detail="The AI provider could not use this model or request. Check the configured OPENAI_MODEL and project access.") from exc
         raise HTTPException(status_code=502, detail="The AI service could not answer right now.") from exc
     except (URLError, TimeoutError, json.JSONDecodeError):
         raise HTTPException(status_code=502, detail="The AI service could not be reached right now.")
