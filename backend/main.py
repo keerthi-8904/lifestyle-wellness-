@@ -1,8 +1,12 @@
 import os
 import json
 import math
+import time
+from threading import Lock
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 from fastapi import Depends, FastAPI, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -23,6 +27,8 @@ elif DATABASE_URL.startswith("postgresql://"):
     DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+psycopg://", 1)
 JWT_SECRET = os.getenv("JWT_SECRET", "local-demo-secret-change-before-deployment")
 ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "").strip().lower()
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5.4-mini").strip()
 FRONTEND_ORIGIN = os.getenv("FRONTEND_ORIGIN", "http://localhost:5173")
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {})
 SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
@@ -85,6 +91,14 @@ class DiabetesResearchInput(BaseModel):
     fasting_glucose_mg_dl: float = Field(ge=51, le=109)
     fatty_liver: bool
 
+class ChatMessage(BaseModel):
+    role: str = Field(pattern="^(user|assistant)$")
+    content: str = Field(min_length=1, max_length=1200)
+
+class ChatInput(BaseModel):
+    messages: list[ChatMessage] = Field(min_length=1, max_length=10)
+    consent: bool
+
 def db_session():
     db = SessionLocal()
     try: yield db
@@ -128,6 +142,67 @@ def trend_projection(items: list[Checkin], field: str, floor: float, ceiling: fl
 
 @app.get("/api/health")
 def health(): return {"status": "ok"}
+
+CHAT_REQUESTS: dict[int, list[float]] = {}
+CHAT_REQUESTS_LOCK = Lock()
+CHAT_SYSTEM_PROMPT = """You are Bloom Wellness Guide, a general wellness and app-navigation assistant. Be calm, respectful, nonjudgmental, brief, and use plain language. You are not a clinician. Never diagnose a disease, say what disease a person probably has, provide a personal disease probability, prescribe or change medicine, or present your answer as medical advice. Explain that symptoms can have many causes. Give low-risk general wellness information only, and suggest a qualified health professional when a concern is persistent, worsening, or worrying. Do not ask for names, email addresses, exact locations, account credentials, or unnecessary identifying health details. If someone describes an immediate medical emergency (for example severe chest pain, trouble breathing, or sudden one-sided weakness) or may act on self-harm thoughts, tell them to contact their local emergency service or go to an emergency department now; encourage them to contact a trusted person. For substance use, be nonjudgmental and note that withdrawal from alcohol or sedatives may require medical supervision. Do not claim access to Bloom account records; answer only from the current chat. If asked to predict every disease, explain that Bloom does not do that and that separate validated tools are required."""
+
+def allow_chat_request(user_id: int) -> bool:
+    now = time.monotonic()
+    with CHAT_REQUESTS_LOCK:
+        recent = [stamp for stamp in CHAT_REQUESTS.get(user_id, []) if now - stamp < 3600]
+        if len(recent) >= 10:
+            CHAT_REQUESTS[user_id] = recent
+            return False
+        recent.append(now)
+        CHAT_REQUESTS[user_id] = recent
+        return True
+
+@app.get("/api/chat/status")
+def chat_status(_user: User = Depends(current_user)):
+    return {"available": bool(OPENAI_API_KEY)}
+
+@app.post("/api/chat")
+def wellness_chat(data: ChatInput, user: User = Depends(current_user)):
+    if not data.consent:
+        raise HTTPException(status_code=400, detail="Consent is required before sending a message to the AI provider.")
+    if not OPENAI_API_KEY:
+        raise HTTPException(status_code=503, detail="The AI guide is not configured yet.")
+    if not allow_chat_request(user.id):
+        raise HTTPException(status_code=429, detail="You have reached the chat demo limit. Please try again later.")
+    payload = {
+        "model": OPENAI_MODEL,
+        "instructions": CHAT_SYSTEM_PROMPT,
+        "input": [{"role": item.role, "content": item.content} for item in data.messages[-10:]],
+        "store": False,
+        "max_output_tokens": 450,
+    }
+    request = Request(
+        "https://api.openai.com/v1/responses",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Authorization": f"Bearer {OPENAI_API_KEY}", "Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urlopen(request, timeout=25) as response:
+            result = json.loads(response.read().decode("utf-8"))
+    except HTTPError as exc:
+        if exc.code == 429:
+            raise HTTPException(status_code=503, detail="The AI service is busy or its API quota is unavailable. Please try later.") from exc
+        raise HTTPException(status_code=502, detail="The AI service could not answer right now.") from exc
+    except (URLError, TimeoutError, json.JSONDecodeError):
+        raise HTTPException(status_code=502, detail="The AI service could not be reached right now.")
+    reply = result.get("output_text", "")
+    if not reply:
+        reply = "\n".join(
+            part.get("text", "")
+            for item in result.get("output", [])
+            for part in item.get("content", [])
+            if part.get("type") == "output_text"
+        ).strip()
+    if not reply:
+        raise HTTPException(status_code=502, detail="The AI service returned an empty reply. Please try again.")
+    return {"reply": reply}
 
 @app.get("/", include_in_schema=False)
 def frontend():
