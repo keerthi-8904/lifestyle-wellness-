@@ -29,6 +29,7 @@ You need Node.js LTS and Python 3.11 or newer.
 ## Included
 
 - Account registration and sign-in; passwords are stored as hashes.
+- Optional owner-only account dashboard. Set `ADMIN_EMAIL` on the API service to the exact email address of the owner account. The dashboard API checks the authenticated account on every request, lists accounts and check-in counts, and shows each account's check-ins on demand. It never returns password hashes. Leave `ADMIN_EMAIL` unset to disable owner access.
 - Personal daily check-ins for sleep, active days, stress, and meal balance.
 - A guided, sequential wellness journey with flexible ideas for students, employees, teachers, shift workers, travelers, caregivers, and people seeking optional support around tobacco, alcohol, or recovery. Routine choices stay in browser storage on that device; they are not disease-risk inputs.
 - A symptom and health-topic search that opens MedlinePlus, a U.S. National Library of Medicine resource with reviewed health information. Search terms are sent to MedlinePlus by the user's browser and are not sent to Bloom's API. This is information lookup, not an AI diagnosis.

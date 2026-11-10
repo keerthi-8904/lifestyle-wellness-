@@ -4,14 +4,14 @@ import math
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from pydantic import BaseModel, Field
-from sqlalchemy import Date, DateTime, Float, ForeignKey, Integer, String, UniqueConstraint, create_engine, select
+from sqlalchemy import Date, DateTime, Float, ForeignKey, Integer, String, UniqueConstraint, create_engine, func, select
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship, sessionmaker
 from fastapi.staticfiles import StaticFiles
 
@@ -22,6 +22,7 @@ if DATABASE_URL.startswith("postgres://"):
 elif DATABASE_URL.startswith("postgresql://"):
     DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+psycopg://", 1)
 JWT_SECRET = os.getenv("JWT_SECRET", "local-demo-secret-change-before-deployment")
+ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "").strip().lower()
 FRONTEND_ORIGIN = os.getenv("FRONTEND_ORIGIN", "http://localhost:5173")
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {})
 SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
@@ -89,7 +90,7 @@ def db_session():
     try: yield db
     finally: db.close()
 
-def user_view(user: User): return {"id": user.id, "name": user.name, "email": user.email}
+def user_view(user: User): return {"id": user.id, "name": user.name, "email": user.email, "is_admin": bool(ADMIN_EMAIL and user.email.strip().lower() == ADMIN_EMAIL)}
 def token_for(user: User):
     token = jwt.encode({"sub": str(user.id), "exp": datetime.now(timezone.utc) + timedelta(days=7)}, JWT_SECRET, algorithm="HS256")
     return {"access_token": token, "token_type": "bearer", "user": user_view(user)}
@@ -99,6 +100,11 @@ def current_user(token: str = Depends(oauth), db: Session = Depends(db_session))
     except (JWTError, ValueError): raise HTTPException(status_code=401, detail="Please sign in again.")
     user = db.get(User, user_id)
     if not user: raise HTTPException(status_code=401, detail="Account not found.")
+    return user
+
+def require_admin(user: User = Depends(current_user)) -> User:
+    if not ADMIN_EMAIL or user.email.strip().lower() != ADMIN_EMAIL:
+        raise HTTPException(status_code=403, detail="Owner access is not enabled for this account.")
     return user
 
 def checkin_view(item: Checkin):
@@ -152,6 +158,34 @@ def list_checkins(limit: int = 90, user: User = Depends(current_user), db: Sessi
     limit = max(1, min(limit, 365))
     items = db.scalars(select(Checkin).where(Checkin.user_id == user.id).order_by(Checkin.day.desc()).limit(limit)).all()
     return [checkin_view(item) for item in reversed(items)]
+
+@app.get("/api/admin/users")
+def admin_users(limit: int = Query(50, ge=1, le=100), offset: int = Query(0, ge=0), _admin: User = Depends(require_admin), db: Session = Depends(db_session)):
+    total = db.scalar(select(func.count(User.id))) or 0
+    rows = db.execute(
+        select(User, func.count(Checkin.id))
+        .outerjoin(Checkin, Checkin.user_id == User.id)
+        .group_by(User.id)
+        .order_by(User.created_at.desc())
+        .offset(offset)
+        .limit(limit)
+    ).all()
+    return {"total": total, "users": [{"id": user.id, "name": user.name, "email": user.email, "created_at": user.created_at.isoformat(), "checkin_count": count} for user, count in rows]}
+
+@app.get("/api/admin/users/{user_id}/checkins")
+def admin_user_checkins(user_id: int, limit: int = Query(30, ge=1, le=100), offset: int = Query(0, ge=0), _admin: User = Depends(require_admin), db: Session = Depends(db_session)):
+    user = db.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found.")
+    total = db.scalar(select(func.count(Checkin.id)).where(Checkin.user_id == user_id)) or 0
+    items = db.scalars(
+        select(Checkin)
+        .where(Checkin.user_id == user_id)
+        .order_by(Checkin.day.desc())
+        .offset(offset)
+        .limit(limit)
+    ).all()
+    return {"total": total, "user": {"id": user.id, "name": user.name, "email": user.email, "created_at": user.created_at.isoformat()}, "checkins": [checkin_view(item) for item in items]}
 
 @app.get("/api/outlook")
 def lifestyle_outlook(user: User = Depends(current_user), db: Session = Depends(db_session)):
